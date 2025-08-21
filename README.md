@@ -3,7 +3,7 @@ automatic mining, claim every 24h send notif telegram
 
 1. Clone
    ```
-   git clone https://github.com/rokipdj88/netrum-auto.git
+   git clone https://github.com/huukhoa1412/netrum-auto.git
    cd netrum-auto
    ```
    
@@ -32,4 +32,4 @@ automatic mining, claim every 24h send notif telegram
 
 CTRL A + D for run in background
 
-Join Our Telegram : [https://t.me/NTExhaust]
+Join Our Telegram : [https://t.me/lehuukhoa
