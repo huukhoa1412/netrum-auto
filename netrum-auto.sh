@@ -20,19 +20,19 @@ while true; do
   send_telegram "📢 *NT-Exhaust Report*  
 *===== NETRUM AI =====*
 
-🚀 *Mining Netrum dimulai...* ⛏️
-🕒 *Jam mulai*: $start_time
+🚀 *Mining Netrum begin...* ⛏️
+🕒 *Start time*: $start_time
 🧾 *Wallet*: \`${WALLET}\`
-💰 *Saldo NPT (Base)*: ${NPT_BALANCE} NPT"
+💰 *NPT Balance (Base)*: ${NPT_BALANCE} NPT"
 
   netrum-mining &
   mining_pid=$!
 
   sleep 87000
 
-  send_telegram "⏳ *24 jam selesai. Klaim reward...* 🪙"
+  send_telegram "⏳ *24 hours to complete. Claim your reward...* 🪙"
   echo "y" | netrum-claim
   kill $mining_pid
 
-  send_telegram "✅ *Claim selesai! Mining dimulai ulang...* 🔁"
+  send_telegram "✅ *Claim completed! Mining restarted...* 🔁"
 done
