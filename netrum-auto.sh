@@ -17,7 +17,7 @@ while true; do
   start_time=$(date '+%Y-%m-%d %H:%M:%S')
   NPT_BALANCE=$(node get-npt-balance.js 2>/dev/null)
 
-  send_telegram "📢 *NT-Exhaust Report*  
+  send_telegram "📢 *Netrum Report*  
 *===== NETRUM AI =====*
 
 🚀 *Mining Netrum begin...* ⛏️
