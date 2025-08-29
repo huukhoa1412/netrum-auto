@@ -6,17 +6,25 @@ source .env
 set +a
 
 LOCKFILE="/tmp/netrum-auto.lock"
-OFFSET=0
 mining_pid=""
 last_claim_time=$(date +%s)
 
 # === Functions ===
 send_telegram() {
   local message="$1"
-  curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-    -d chat_id="$CHAT_ID" \
-    -d text="$message" \
-    -d parse_mode="Markdown" >/dev/null
+  local extra="$2" # optional JSON (reply_markup)
+  if [ -z "$extra" ]; then
+    curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+      -d chat_id="$CHAT_ID" \
+      -d text="$message" \
+      -d parse_mode="Markdown" >/dev/null
+  else
+    curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+      -d chat_id="$CHAT_ID" \
+      -d text="$message" \
+      -d parse_mode="Markdown" \
+      -d reply_markup="$extra" >/dev/null
+  fi
 }
 
 start_mining() {
@@ -65,15 +73,44 @@ if [ -f "$LOCKFILE" ]; then
 fi
 touch "$LOCKFILE"
 
+# === Skip old messages ===
+OFFSET=$(curl -s "https://api.telegram.org/bot$BOT_TOKEN/getUpdates" | jq '.result[-1].update_id + 1')
+if [ "$OFFSET" = "null" ]; then
+  OFFSET=0
+fi
+
 send_telegram "📢 *Netrum Bot started!*"
+
+# === Inline keyboard menu JSON ===
+INLINE_MENU='{
+  "inline_keyboard": [
+    [{"text": "🚀 Start", "callback_data": "/start"},
+     {"text": "🛑 Stop", "callback_data": "/stop"}],
+    [{"text": "⚡ Status", "callback_data": "/status"},
+     {"text": "💰 Balance", "callback_data": "/check"}],
+    [{"text": "💳 Wallet", "callback_data": "/wallet"}]
+  ]
+}'
 
 # === Main Loop ===
 while true; do
   # 1. Check new Telegram messages
   UPDATES=$(curl -s "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=$OFFSET")
   for row in $(echo "$UPDATES" | jq -c '.result[]'); do
-    OFFSET=$(echo "$row" | jq '.update_id')+1
+    update_id=$(echo "$row" | jq '.update_id')
+    OFFSET=$((update_id + 1))
+
     TEXT=$(echo "$row" | jq -r '.message.text')
+    CALLBACK=$(echo "$row" | jq -r '.callback_query.data // empty')
+
+    # Nếu là inline keyboard (callback)
+    if [ -n "$CALLBACK" ] && [ "$CALLBACK" != "null" ]; then
+      TEXT="$CALLBACK"
+      # trả lời callback để Telegram không báo "loading..."
+      callback_id=$(echo "$row" | jq -r '.callback_query.id')
+      curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/answerCallbackQuery" \
+        -d callback_query_id="$callback_id" >/dev/null
+    fi
 
     case "$TEXT" in
       "/start") start_mining ;;
@@ -81,7 +118,11 @@ while true; do
       "/check") check_balance ;;
       "/wallet") send_telegram "💳 Wallet: \`${WALLET}\`" ;;
       "/status") show_status ;;
-      *) send_telegram "❓ Unknown command: $TEXT" ;;
+      "/menu") send_telegram "📋 *Choose an option:*" "$INLINE_MENU" ;;
+      *) if [ -n "$TEXT" ] && [ "$TEXT" != "null" ]; then
+           send_telegram "❓ Unknown command: $TEXT"
+         fi
+         ;;
     esac
   done
 
