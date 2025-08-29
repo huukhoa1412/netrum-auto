@@ -1,9 +1,16 @@
-  #!/bin/bash
+#!/bin/bash
 
-# Load .env
+# ========== Setup ==========
 set -a
 source .env
 set +a
+
+LOCK_FILE="/tmp/netrum-bot.lock"
+PID_FILE="/tmp/netrum-mining.pid"
+
+# Chỉ cho phép 1 instance chạy
+exec 200>$LOCK_FILE
+flock -n 200 || { echo "Another instance is running"; exit 1; }
 
 # ========== Telegram Function ==========
 send_telegram() {
@@ -28,10 +35,15 @@ send_telegram() {
     -d reply_markup="$keyboard" >/dev/null
 }
 
+# ========== PID Handling ==========
+save_pid() { echo "$mining_pid" > "$PID_FILE"; }
+load_pid() { [[ -f "$PID_FILE" ]] && mining_pid=$(cat "$PID_FILE"); }
+
 # ========== Bot Actions ==========
 start_mining() {
+  load_pid
   if [[ -n "$mining_pid" && -e /proc/$mining_pid ]]; then
-    send_telegram "⚡ Mining already running ⛏️"
+    send_telegram "⚡ Mining already running ⛏️ (PID: $mining_pid)"
     return
   fi
 
@@ -39,8 +51,6 @@ start_mining() {
   NPT_BALANCE=$(node get-npt-balance.js 2>/dev/null)
 
   send_telegram "📢 *Netrum Report*  
-*===== NETRUM AI =====*
-
 🚀 *Mining started* ⛏️
 🕒 *Start time*: $start_time
 🧾 *Wallet*: \`${WALLET}\`
@@ -48,21 +58,24 @@ start_mining() {
 
   netrum-mining &
   mining_pid=$!
+  save_pid
 
   (
     sleep 87000
     send_telegram "⏳ *24h completed. Claiming reward...* 🪙"
     echo "y" | netrum-claim
     kill $mining_pid 2>/dev/null
+    rm -f "$PID_FILE"
     send_telegram "✅ *Claim done! Restarting mining...* 🔁"
     start_mining
   ) &
 }
 
 stop_mining() {
+  load_pid
   if [[ -n "$mining_pid" && -e /proc/$mining_pid ]]; then
     kill $mining_pid
-    mining_pid=""
+    rm -f "$PID_FILE"
     send_telegram "🛑 *Mining stopped*"
   else
     send_telegram "❌ Mining is not running"
@@ -75,8 +88,15 @@ check_balance() {
 }
 
 show_status() {
+  load_pid
   if [[ -n "$mining_pid" && -e /proc/$mining_pid ]]; then
-    send_telegram "⚡ Mining is *running* ⛏️ (PID: $mining_pid)"
+    LOG=$(netrum-mining-log 2>/dev/null | tail -n 1)
+    if [[ -z "$LOG" ]]; then
+      LOG="Không có log mới."
+    elif [[ "$LOG" == *"Error fetching status"* ]]; then
+      LOG="❌ Mining chưa sẵn sàng. Vui lòng thử lại sau 5 phút."
+    fi
+    send_telegram "⚡ Mining is *running* ⛏️ (PID: $mining_pid)\n\n📄 *Current status:*\n\`\`\`\n$LOG\n\`\`\`"
   else
     send_telegram "🛑 Mining is *stopped*"
   fi
@@ -84,28 +104,20 @@ show_status() {
 
 # ========== Main Loop ==========
 OFFSET=$(curl -s "https://api.telegram.org/bot$BOT_TOKEN/getUpdates" | jq '.result[-1].update_id' 2>/dev/null)
-if [[ -z "$OFFSET" || "$OFFSET" == "null" ]]; then
-  OFFSET=0
-else
-  OFFSET=$((OFFSET + 1))
-fi
+[[ -z "$OFFSET" || "$OFFSET" == "null" ]] && OFFSET=0 || OFFSET=$((OFFSET + 1))
 
 while true; do
   UPDATES=$(curl -s "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=$OFFSET")
 
-  for row in $(echo "$UPDATES" | jq -c '.result[]?'); do
+  jq -c '.result[]?' <<<"$UPDATES" | while read -r row; do
     update_id=$(echo "$row" | jq '.update_id')
     OFFSET=$((update_id + 1))
 
-    # Text message
     TEXT=$(echo "$row" | jq -r '.message.text // empty')
-    # Callback button
     CALLBACK=$(echo "$row" | jq -r '.callback_query.data // empty')
 
     COMMAND="$TEXT"
-    if [[ -n "$CALLBACK" ]]; then
-      COMMAND="$CALLBACK"
-    fi
+    [[ -n "$CALLBACK" ]] && COMMAND="$CALLBACK"
 
     case "$COMMAND" in
       "/start") start_mining ;;
